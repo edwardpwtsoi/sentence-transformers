@@ -9,12 +9,13 @@ import requests
 import numpy as np
 from numpy import ndarray
 import transformers
-from huggingface_hub import HfApi, HfFolder, Repository, hf_hub_url, cached_download
+from huggingface_hub import HfApi, HfFolder, Repository, hf_hub_url, cached_download, snapshot_download
 import torch
 from torch import nn, Tensor, device
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 import torch.multiprocessing as mp
+import torch.distributed as dist
 from tqdm.autonotebook import trange
 import math
 import queue
@@ -86,12 +87,14 @@ class SentenceTransformer(nn.Sequential):
                 
                 if not os.path.exists(os.path.join(model_path, 'modules.json')):
                     # Download from hub with caching
-                    snapshot_download(model_name_or_path,
-                                        cache_dir=cache_folder,
-                                        library_name='sentence-transformers',
-                                        library_version=__version__,
-                                        ignore_files=['flax_model.msgpack', 'rust_model.ot', 'tf_model.h5'],
-                                        use_auth_token=use_auth_token)
+                    if os.getenv("LOCAL_RANK") == 0:
+                        snapshot_download(model_name_or_path,
+                                            cache_dir=cache_folder,
+                                            library_name='sentence-transformers',
+                                            library_version=__version__,
+                                            ignore_files=['flax_model.msgpack', 'rust_model.ot', 'tf_model.h5'],
+                                            use_auth_token=use_auth_token)
+                    dist.barrier()
 
             if os.path.exists(os.path.join(model_path, 'modules.json')):    #Load as SentenceTransformer model
                 modules = self._load_sbert_model(model_path)
