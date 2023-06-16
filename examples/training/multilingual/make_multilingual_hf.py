@@ -5,6 +5,7 @@ from typing import Optional, Dict, Union, Any, List, Tuple
 
 import numpy as np
 import torch
+import torch.distributed as dist
 import torch.nn.functional as F
 from numpy import ndarray
 from transformers import Trainer, HfArgumentParser, TrainingArguments, EvalPrediction
@@ -67,8 +68,9 @@ class SentenceTransformerMSEEvaluator(Evaluator):
         mse = ((source_embeddings - target_embeddings) ** 2).mean()
         mse *= 100
 
-        logger.info("MSE evaluation (lower = better)")
-        logger.info("MSE (*100):\t{:4f}".format(mse))
+        if dist.get_rank() == 0:
+            logger.info("MSE evaluation (lower = better)")
+            logger.info("MSE (*100):\t{:4f}".format(mse))
 
         return {"mse": mse}
 
@@ -97,8 +99,9 @@ class SentenceTransformerTranslationEvaluator(Evaluator):
         acc_src2trg = correct_src2trg / len(cos_sims)
         acc_trg2src = correct_trg2src / len(cos_sims)
 
-        logger.info("Accuracy src2trg: {:.2f}".format(acc_src2trg * 100))
-        logger.info("Accuracy trg2src: {:.2f}".format(acc_trg2src * 100))
+        if dist.get_rank() == 0:
+            logger.info("Accuracy src2trg: {:.2f}".format(acc_src2trg * 100))
+            logger.info("Accuracy trg2src: {:.2f}".format(acc_trg2src * 100))
 
         return {
             "mean_translation_accuracy": (acc_src2trg + acc_trg2src) / 2
