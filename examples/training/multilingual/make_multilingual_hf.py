@@ -9,7 +9,6 @@ import torch.distributed as dist
 import torch.nn.functional as F
 from numpy import ndarray
 from transformers import Trainer, HfArgumentParser, TrainingArguments, EvalPrediction
-from transformers.optimization import get_cosine_with_hard_restarts_schedule_with_warmup
 
 from sentence_transformers import LoggingHandler, SentenceTransformer, ParallelSentencesDataset
 from sentence_transformers.models import Transformer, Pooling
@@ -72,7 +71,7 @@ class SentenceTransformerMSEEvaluator(Evaluator):
             logger.info("MSE evaluation (lower = better)")
             logger.info("MSE (*100):\t{:4f}".format(mse))
 
-        return {"mse": mse}
+        return {"mse": -mse}
 
 
 class SentenceTransformerTranslationEvaluator(Evaluator):
@@ -122,11 +121,10 @@ class SequentialEvaluator(Evaluator):
 class SentenceTransformerMultilingualTrainer(Trainer):
     model: SentenceTransformer
 
-    def __init__(self, evaluator: Evaluator = None, num_cycles: int = 1, **kwargs):
+    def __init__(self, evaluator: Evaluator = None, **kwargs):
         super().__init__(**kwargs)
         self.evaluator = evaluator
         self.compute_metrics = self.compute_metrics_impl
-        self.num_cycles = num_cycles
 
     def compute_loss(self, model: SentenceTransformer, inputs, return_outputs=False):
         outputs = model(inputs)
@@ -150,36 +148,6 @@ class SentenceTransformerMultilingualTrainer(Trainer):
             loss = loss.mean().detach()
         return loss, outputs['sentence_embedding'], outputs["labels"]
 
-    def create_scheduler(self, num_training_steps: int, num_cycles: int = 1, optimizer: torch.optim.Optimizer = None):
-        """
-        Setup the scheduler. The optimizer of the trainer must have been set up either before this method is called or
-        passed as an argument.
-
-        Args:
-            num_training_steps (int): The number of training steps to do.
-            num_cycles (int): The number of cycles
-        """
-        if self.lr_scheduler is None:
-            self.lr_scheduler = get_cosine_with_hard_restarts_schedule_with_warmup(
-                optimizer=self.optimizer if optimizer is None else optimizer,
-                num_warmup_steps=self.args.get_warmup_steps(num_training_steps),
-                num_training_steps=num_training_steps,
-                num_cycles=num_cycles,
-            )
-        return self.lr_scheduler
-
-    def create_optimizer_and_scheduler(self, num_training_steps: int):
-        """
-        Setup the optimizer and the learning rate scheduler.
-
-        We provide a reasonable default that works well. If you want to use something else, you can pass a tuple in the
-        Trainer's init through `optimizers`, or subclass and override this method (or `create_optimizer` and/or
-        `create_scheduler`) in a subclass.
-        """
-        self.create_optimizer()
-        optimizer = self.optimizer
-        self.create_scheduler(num_training_steps=num_training_steps, num_cycles=self.num_cycles, optimizer=optimizer)
-
 
 def parse_args():
     parser = HfArgumentParser(TrainingArguments)
@@ -200,8 +168,6 @@ def parse_args():
                         help='Maximum length (characters) for parallel training sentences')
     parser.add_argument("--train_files", nargs="+", type=str, help="parallel sentence tsv for training")
     parser.add_argument("--test_files", nargs="+", type=str, help="parallel sentence tsv for testing")
-    parser.add_argument("--num_cycles", type=int, help="number of cosine cycles in "
-                                                                  "cosine hard restart scheduler")
     return parser.parse_args_into_dataclasses()
 
 
@@ -246,8 +212,7 @@ if __name__ == "__main__":
         evaluator=SequentialEvaluator([
             SentenceTransformerMSEEvaluator(),
             SentenceTransformerTranslationEvaluator()
-        ]),
-        num_cycles=args.num_cycles
+        ])
     )
 
     trainer.train()  # save model?
