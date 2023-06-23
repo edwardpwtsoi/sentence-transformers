@@ -172,6 +172,7 @@ def parse_args():
 
 
 if __name__ == "__main__":
+    dist.init_process_group("nccl" if torch.cuda.is_available() else "gloo")
     logging.basicConfig(format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO,
                         handlers=[LoggingHandler()])
     logger = logging.getLogger(__name__)
