@@ -11,7 +11,7 @@ from numpy import ndarray
 from transformers import Trainer, HfArgumentParser, TrainingArguments, EvalPrediction
 
 from sentence_transformers import LoggingHandler, SentenceTransformer, ParallelSentencesDataset
-from sentence_transformers.models import Transformer, Pooling
+from sentence_transformers.models import Transformer, Pooling, Dense, Normalize
 from sentence_transformers.util import pytorch_cos_sim
 
 
@@ -168,6 +168,8 @@ def parse_args():
                         help='Maximum length (characters) for parallel training sentences')
     parser.add_argument("--train_files", nargs="+", type=str, help="parallel sentence tsv for training")
     parser.add_argument("--test_files", nargs="+", type=str, help="parallel sentence tsv for testing")
+    parser.add_argument("--t5_student", action="store_true", help="whether add a projection layer at the end")
+    parser.add_argument("--t5_student_d_model", type=int, default=None, help="out channels of the projection layer")
     return parser.parse_args_into_dataclasses()
 
 
@@ -186,7 +188,15 @@ if __name__ == "__main__":
     word_embedding_model = Transformer(args.student, max_seq_length=args.max_seq_length)
     # Apply mean pooling to get one fixed sized sentence vector
     pooling_model = Pooling(word_embedding_model.get_word_embedding_dimension())
-    student_model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
+    _modules = [word_embedding_model, pooling_model]
+    if args.t5_student:
+        assert args.t5_student_d_model is not None, f"Invalid value for t5_student_d_model: {args.t5_student_d_model}"
+        _modules.append(Dense(
+            word_embedding_model.get_word_embedding_dimension(), args.t5_student_d_model,
+            bias=False, activation_function=torch.nn.modules.linear.Identity()
+        ))
+        _modules.append(Normalize())
+    student_model = SentenceTransformer(modules=_modules)
 
     train_data = ParallelSentencesDataset(student_model=student_model, teacher_model=teacher_model,
                                           batch_size=args.teacher_inference_batch_size, use_embedding_cache=True)
